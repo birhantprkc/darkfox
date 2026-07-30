@@ -199,6 +199,7 @@ else
 
     echo "Google Chrome installation complete!"
     echo
+
 fi
 echo
 
@@ -375,10 +376,19 @@ echo
 # Execution and Filtering
 echo "Querying Ahmia..."
 
-# Run pyahmia - it will save to /root/pyahmia/{SEARCH}.csv
-/root/.local/bin/pyahmia -e "$SEARCH" > /dev/null 2>&1
+# Ensure the directory for pyahmia output exists
+mkdir -p "$(dirname "$AHMIA_CSV")"
+TMP_PYOUT="$(dirname "$AHMIA_CSV")/${SEARCH}.out"
 
-# Check if the CSV file was created
+# Run pyahmia and capture stdout/stderr to a temporary file. Prefer the known binary path if executable.
+if [ -x "$PYAHMIA_BIN" ]; then
+    "$PYAHMIA_BIN" -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
+else
+    # Fallback to whatever 'pyahmia' is in PATH
+    pyahmia -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
+fi
+
+# If pyahmia created the CSV itself, parse it. Otherwise try to extract .onion domains from the captured output.
 if [ -f "$AHMIA_CSV" ]; then
     # Extract .onion URLs from the CSV (column 3 contains the URLs)
     # Skip header (NR > 1) and extract only valid .onion domains
@@ -391,20 +401,45 @@ if [ -f "$AHMIA_CSV" ]; then
             gsub(/^[ \t]+|[ \t]+$/, "", url)
             if (url ~ /\.onion$/) {
                 print url
+            } else {
+                # If the field contains a full URL, extract the domain
+                sub(/https?:\/\//, "", url)
+                split(url, a, "/")
+                print a[1]
             }
         }
     }' "$AHMIA_CSV" | sort -u > "$RESULTS_FILE"
-    
+
     # Additional filtering - remove banned patterns
     sed -i '/invest/d; /222/d; /drug/d; /porn/d' "$RESULTS_FILE"
-    
+
     COUNT=$(wc -l < "$RESULTS_FILE")
     echo -e "\e[31mOnions Found:\e[0m $COUNT"
     echo "Results saved to: $RESULTS_FILE"
     echo "CSV source: $AHMIA_CSV"
 else
-    echo -e "\e[31mNo CSV file created. Ahmia may have failed.\e[0m"
-    COUNT=0
+    # Try to extract onion domains from pyahmia stdout captured in TMP_PYOUT
+    # First extract full URLs then domains, then fallback to bare onion tokens
+    grep -ioE 'https?://[^/[:space:]]+\.onion' "$TMP_PYOUT" 2>/dev/null | sed -E 's#https?://##; s#/.*##' | sort -u > "$RESULTS_FILE"
+
+    if [ ! -s "$RESULTS_FILE" ]; then
+        grep -ioE '\b[a-z2-7]{16,56}\.onion\b' "$TMP_PYOUT" 2>/dev/null | sort -u > "$RESULTS_FILE"
+    fi
+
+    # Normalize and clean
+    sed -i 's/"//g; s/^[ \t]*//; s/[ \t]*$//' "$RESULTS_FILE"
+    sed -i '/^$/d; /invest/d; /222/d; /drug/d; /porn/d' "$RESULTS_FILE"
+
+    COUNT=$(wc -l < "$RESULTS_FILE" 2>/dev/null || echo 0)
+    if [ "$COUNT" -gt 0 ]; then
+        echo -e "\e[31mOnions Found:\e[0m $COUNT"
+        echo "Results saved to: $RESULTS_FILE"
+        echo "(Parsed from pyahmia output: $TMP_PYOUT)"
+    else
+        echo -e "\e[31mNo CSV file created. Ahmia may have failed or returned no results.\e[0m"
+        echo "Captured pyahmia output: $TMP_PYOUT"
+        COUNT=0
+    fi
 fi
 echo
 
@@ -422,10 +457,8 @@ if [ "$COUNT" -eq 0 ]; then
         read -p "What are you researching: " SEARCH
         AHMIA_CSV="/root/pyahmia/${SEARCH}.csv"
         RESULTS_FILE="/root/pyahmia/${SEARCH}.txt"
-        
         echo -e "\nSearching for: $SEARCH"
         echo
-        
         echo "Searching for DarkWeb Onions..."
         echo -ne '#####                     (33%)\r'
         sleep 1
@@ -434,10 +467,17 @@ if [ "$COUNT" -eq 0 ]; then
         echo -ne '#######################   (100%)\r'
         echo -ne '\n'
         echo
-        
         echo "Querying Ahmia..."
-        /root/.local/bin/pyahmia -e "$SEARCH" > /dev/null 2>&1
-        
+
+        # Ensure directory exists and capture output
+        mkdir -p "$(dirname "$AHMIA_CSV")"
+        TMP_PYOUT="$(dirname "$AHMIA_CSV")/${SEARCH}.out"
+        if [ -x "$PYAHMIA_BIN" ]; then
+            "$PYAHMIA_BIN" -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
+        else
+            pyahmia -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
+        fi
+
         if [ -f "$AHMIA_CSV" ]; then
             # Extract .onion URLs from CSV
             awk -F',' 'NR > 1 {
@@ -447,6 +487,10 @@ if [ "$COUNT" -eq 0 ]; then
                     gsub(/^[ \t]+|[ \t]+$/, "", url)
                     if (url ~ /\.onion$/) {
                         print url
+                    } else {
+                        sub(/https?:\/\//, "", url)
+                        split(url, a, "/")
+                        print a[1]
                     }
                 }
             }' "$AHMIA_CSV" | sort -u > "$RESULTS_FILE"
@@ -457,8 +501,21 @@ if [ "$COUNT" -eq 0 ]; then
             echo -e "\e[31mOnions Found:\e[0m $COUNT"
             echo "Results saved to: $RESULTS_FILE"
         else
-            echo -e "\e[31mNo CSV file created.\e[0m"
-            COUNT=0
+            # Fallback parse from pyahmia stdout
+            grep -ioE 'https?://[^/[:space:]]+\.onion' "$TMP_PYOUT" 2>/dev/null | sed -E 's#https?://##; s#/.*##' | sort -u > "$RESULTS_FILE"
+            if [ ! -s "$RESULTS_FILE" ]; then
+                grep -ioE '\b[a-z2-7]{16,56}\.onion\b' "$TMP_PYOUT" 2>/dev/null | sort -u > "$RESULTS_FILE"
+            fi
+            sed -i 's/"//g; s/^[ \t]*//; s/[ \t]*$//' "$RESULTS_FILE"
+            sed -i '/^$/d; /invest/d; /222/d; /drug/d; /porn/d; /fresh/d; /darknet/d; /dna/d; /hack/d' "$RESULTS_FILE"
+            COUNT=$(wc -l < "$RESULTS_FILE" 2>/dev/null || echo 0)
+            if [ "$COUNT" -gt 0 ]; then
+                echo -e "\e[31mOnions Found:\e[0m $COUNT"
+                echo "Results saved to: $RESULTS_FILE"
+            else
+                echo -e "\e[31mNo CSV file created.\e[0m"
+                COUNT=0
+            fi
         fi
         echo
     else
@@ -607,7 +664,7 @@ if [ -f "$ONIONS" ]; then
     # File exists: Extract top 3 based on Title relevance
     readarray -t HITS < <(awk -v search="$SEARCH" '
         BEGIN { count = 0 }
-        NR > 1 && $1 ~ /\.onion/ {
+        NR > 1 && $1 ~ \/\.onion\/ {
             url = $1;
             sub(/\.onion.*/, ".onion", url);
 
