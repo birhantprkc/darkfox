@@ -37,9 +37,16 @@ echo "OSINT CTI Cyber Threat intelligence v1.2"
 
 echo
 # Todays Date
+sudo timedatectl set-ntp true
 sudo timedatectl set-timezone America/Los_Angeles
 echo -e "\e[034mDate:\e[0m"
 date '+%Y-%m-%d %r' | tee darkfox.run.date
+
+# Update DNS
+echo nameserver 1.1.1.1 > /etc/resolv.conf
+echo nameserver 8.8.8.8 >> /etc/resolv.conf
+
+
 # Setting Variables
 CITY=$(curl -s http://ip-api.com/line?fields=timezone | cut -d "/" -f 2)
 PWD=$(pwd)
@@ -454,6 +461,186 @@ for HIT in "${HITS[@]}"; do
         sleep 2
     fi
 done
+
+# Generate DarkFox Table of Contents (HTML)
+HTML_FILE="$DARKFOX_DIR/darkfox_toc_${SAFE_SEARCH}.html"
+echo -e "\e[31m[+] Generating DarkFox Table of Contents (HTML)...\e[0m"
+
+export DARKFOX_SEARCH_TERM="$SEARCH"
+export DARKFOX_RESULTS_CSV="$DARKFOX_DIR/results.onion.csv"
+export DARKFOX_TITLES_CSV="$ONIONS_CSV"
+export DARKFOX_HTML_OUT="$HTML_FILE"
+export DARKFOX_ALIVE_COUNT="$ALIVE_COUNT"
+
+python3 <<'PYEOF'
+import csv, html, os, re
+from datetime import datetime
+
+results_file = os.environ.get("DARKFOX_RESULTS_CSV", "")
+titles_file  = os.environ.get("DARKFOX_TITLES_CSV", "")
+out_file     = os.environ.get("DARKFOX_HTML_OUT", "darkfox_toc.html")
+search_term  = os.environ.get("DARKFOX_SEARCH_TERM", "")
+alive_count  = os.environ.get("DARKFOX_ALIVE_COUNT", "0")
+
+ONION_RE = re.compile(r"[a-z2-7]{16,56}\.onion")
+
+# Reachable onions, in the order they were verified
+reachable = []
+try:
+    with open(results_file, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                reachable.append(line)
+except FileNotFoundError:
+    pass
+
+# Onion -> description lookup, sourced from the page-titles CSV
+desc_map = {}
+try:
+    with open(titles_file, newline="", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        title_idx = 1
+        if header:
+            for i, col in enumerate(header):
+                if "title" in col.lower():
+                    title_idx = i
+                    break
+        for row in reader:
+            if not row:
+                continue
+            m = ONION_RE.search(row[0])
+            if not m:
+                continue
+            onion = m.group(0)
+            desc = row[title_idx].strip() if len(row) > title_idx else ""
+            desc_map[onion] = desc if desc else "No description available"
+except FileNotFoundError:
+    pass
+
+rows = []
+for idx, onion in enumerate(reachable, start=1):
+    desc = html.escape(desc_map.get(onion, "No description available"))
+    safe_onion = html.escape(onion)
+    rows.append(f"""      <tr>
+        <td class="num">{idx}</td>
+        <td class="onion"><a href="http://{safe_onion}" target="_blank" rel="noopener">{safe_onion}</a></td>
+        <td class="desc">{desc}</td>
+      </tr>""")
+
+rows_html = "\n".join(rows) if rows else '      <tr><td colspan="3" class="empty">No reachable onions to display.</td></tr>'
+
+generated = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+safe_search = html.escape(search_term) if search_term else "N/A"
+
+doc = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DarkFox - Table of Contents</title>
+<style>
+  body {{
+    background: #0d0d0d;
+    color: #d0d0d0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    margin: 0;
+    padding: 30px;
+  }}
+  h1 {{
+    color: #39ff14;
+    border-bottom: 2px solid #39ff14;
+    padding-bottom: 10px;
+  }}
+  .meta {{
+    color: #888;
+    margin-bottom: 20px;
+    font-size: 0.9em;
+  }}
+  .meta span {{
+    color: #39ff14;
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+  }}
+  th {{
+    background: #1a1a1a;
+    color: #39ff14;
+    text-align: left;
+    padding: 10px;
+    border-bottom: 2px solid #39ff14;
+  }}
+  td {{
+    padding: 10px;
+    border-bottom: 1px solid #2a2a2a;
+    vertical-align: top;
+  }}
+  tr:hover {{
+    background: #161616;
+  }}
+  td.num {{
+    color: #666;
+    width: 40px;
+  }}
+  td.onion a {{
+    color: #4fc3f7;
+    text-decoration: none;
+    word-break: break-all;
+  }}
+  td.onion a:hover {{
+    text-decoration: underline;
+  }}
+  td.empty {{
+    text-align: center;
+    color: #666;
+    padding: 30px;
+  }}
+  .footer {{
+    margin-top: 25px;
+    color: #555;
+    font-size: 0.8em;
+  }}
+</style>
+</head>
+<body>
+  <h1>DarkFox &mdash; Table of Contents</h1>
+  <div class="meta">
+    Search term: <span>{safe_search}</span> &nbsp;|&nbsp;
+    Reachable onions: <span>{alive_count}</span> &nbsp;|&nbsp;
+    Generated: <span>{generated}</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Onion Link</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+{rows_html}
+    </tbody>
+  </table>
+  <div class="footer">CTI / OSINT Dark Web research output &mdash; DarkFox</div>
+</body>
+</html>
+"""
+
+with open(out_file, "w", encoding="utf-8") as f:
+    f.write(doc)
+
+print(f"[+] DarkFox TOC written: {out_file} ({len(reachable)} entries)")
+PYEOF
+echo
+
+# Open the DarkFox Table of Contents in Firefox (after the first three onion sites)
+if [ -f "$HTML_FILE" ]; then
+    sudo -u kali firefox "$HTML_FILE" > /dev/null 2>&1 & disown
+    sleep 2
+fi
+echo
 
 # Run gowitness only on the reachable results
 echo -e "\e[31mGoWitness Getting Screenshots for reachable onions...\e[0m"
