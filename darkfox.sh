@@ -17,7 +17,7 @@
 ######################################################
 
 # Banner
-    cat <<'EOF'
+cat <<'EOF'
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   ██████╗  █████╗ ██████╗ ██╗  ██╗███████╗ ██████╗ ██╗  ██╗  ║
@@ -29,20 +29,16 @@
 ║                                                              ║
 ║            CTI Cyber Threat Intelligence Tool                ║
 ║                  Dark Web OSINT Research                     ║
-║                        Version 2.0                           ║
+║                        Version 3.0                           ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF
 echo "OSINT CTI Cyber Threat intelligence v1.2"
-# DarkFox is meant for researchers and educational purposes only. This was developed to speed the investigation, enable clear documentation without pain and suffering. Pay me later.
-# Consider using spiderfoot
-# Find something good let me know
-# https://github.com/smicallef/spiderfoot
 
 echo
 # Todays Date
 sudo timedatectl set-timezone America/Los_Angeles
-echo -e "\e[034mToday is\e[0m"
+echo -e "\e[034mDate:\e[0m"
 date '+%Y-%m-%d %r' | tee darkfox.run.date
 # Setting Variables
 CITY=$(curl -s http://ip-api.com/line?fields=timezone | cut -d "/" -f 2)
@@ -54,13 +50,20 @@ RED='\033[31m'
 BLUE=034m
 echo
 
+# Consistent status message helpers
+print_skip() {
+    echo -e "\e[33m[SKIP]\e[0m $1"
+}
+print_found() {
+    echo -e "\e[32m[OK]\e[0m Found $1"
+}
+
 # Keep the screen on during investigations
 xset s off            # Disable screensaver
 xset s noblank        # No screen blanking
 xset -dpms            # Disable DPMS power saving
 
 # Dependencies Check
-# Must have LibreOffice,TheDevilsEye,Tor,TorGhost,OnionVerifier,FireFox,Chrome Brwoser, GoWitness
 echo "Checking Requirements, Chill for a sec"
 echo
 sudo apt-get update > /dev/null 2>&1
@@ -70,16 +73,14 @@ PACKAGES=( jq tor torbrowser-launcher python3-stem libreoffice )
 echo "Starting package installs..."
 echo
 echo "Errors will be logged to: $LOGFILE"
+echo
 echo "" > "$LOGFILE"
 
 for pkg in "${PACKAGES[@]}"; do
-    # Check if the package is already installed
     if dpkg -s "$pkg" >/dev/null 2>&1; then
-        echo -e "\e[33m[SKIP]\e[0m $pkg is already installed."
+        print_skip "$pkg is already installed."
     else
         echo -e "\e[32m[INSTALLING]\e[0m $pkg..."
-        
-        # Try to install
         if ! apt-get -y install "$pkg"; then
             echo "[ERROR] Failed to install: $pkg" | tee -a "$LOGFILE"
             echo -e "\e[31m[FAILED]\e[0m Could not install $pkg"
@@ -91,40 +92,29 @@ done
 LAUNCHER_SOURCE="/opt/darkfox/DarkFox.desktop"
 LAUNCHER_DEST="/home/kali/Desktop/DarkFox.desktop"
 
-# Check if the file exists using the -f flag
 if [ -f "$LAUNCHER_DEST" ]; then
-    echo "DarkFox launcher already exists on Desktop. Skipping..."
+    print_skip "DarkFox launcher already exists on Desktop."
 else
     echo "Adding DarkFox launcher to Desktop..."
     cp "$LAUNCHER_SOURCE" "$LAUNCHER_DEST"
-    
-    # Ensure we target the file we just copied
     chmod 777 "$LAUNCHER_DEST"
 fi 
 echo
 
 # Network Information
-echo -e "\e[031mGetting Network Information\e[0m"
-# Get public IP, Before Connecting to Dark Web
-# Get location details using ipinfo.io
-# Fetch Public IP using multiple sources (fallback if one fails)
+echo -e "\e[031mCurrent Network Information\e[0m"
 EXT=$(curl -s https://api64.ipify.org || curl -s https://ifconfig.me || curl -s https://checkip.amazonaws.com)
 
-# If IP is still empty, set a default message
-# If "jq: parse error: Invalid numeric literal at line 3, column 0"
-# then you are already connected to Tor
 if [[ -z "$EXT" ]]; then
     EXT="Unavailable"
 fi
 
-# Get location details using ipinfo.io
 LOCATION=$(curl -s ipinfo.io/json)
 COUNTRY=$(echo "$LOCATION" | jq -r '.country')
 REGION=$(echo "$LOCATION" | jq -r '.region')
 CITY=$(echo "$LOCATION" | jq -r '.city')
 KALI=$(hostname -I | awk '{print $1}')
 
-# Print in table format
 echo "---------------------------------"
 printf "| %-12s | %-20s |\n" "Label" "Value"
 echo "---------------------------------"
@@ -136,13 +126,6 @@ printf "| %-12s | %-20s |\n" "Kali IP" "$KALI"
 echo "---------------------------------"
 echo
 
-echo
-echo "Done! Check $LOGFILE for anything that failed."
-echo
-
-sudo apt-get autoremove -y && updatedb > /dev/null 2>&1
-
-# Simulated Progress Bar
 echo -ne '#####                     (33%)\r'
 sleep 1
 echo -ne '#############             (66%)\r'
@@ -152,13 +135,12 @@ echo -ne '\n'
 echo
 
 # Create OSINT investigations folder
-mkdir -p $(pwd)/investigations
+mkdir -p "$(pwd)/investigations"
 
 # Verify LibreOffice is installed
 L="/usr/bin/libreoffice"
-if [ -f "$L" ]
-then
-    echo -e "\e[031mFound LibreOffice\e[0m"
+if [ -f "$L" ]; then
+    print_found "LibreOffice"
 else
     echo -e "\e[031mPlease wait while LibreOffice is installed\e[0m"
     sudo apt-get install -y libreoffice
@@ -170,60 +152,39 @@ cd /home/kali/Downloads || exit 1
 # Google Chrome Installer
 GC="/usr/bin/google-chrome-stable"
 if [ -f "$GC" ]; then
-    echo -e "\e[031mFound Google Chrome\e[0m"
-
+    print_found "Google Chrome"
 else
     echo "Google Chrome not found. Installing..."
-    # Remove unnecessary packages and update database (optional)
-    sudo apt-get autoremove -y
-
-    # Variables
     CHROME_DEB_URL="https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
     DEB_FILE="google-chrome-stable_current_amd64.deb"
-
-    # Download the latest Google Chrome Debian package
-    echo "Downloading and Installing Google Chrome..."
     wget -O "$DEB_FILE" "$CHROME_DEB_URL"
-
-    # Install the downloaded package
-    echo "Installing Google Chrome..."
     sudo dpkg -i "$DEB_FILE"
-
-    # Fix any dependency issues
-    echo "Fixing dependencies..."
     sudo apt-get install -f -y
-
-    # Clean up
-    echo "Cleaning up..."
     rm "$DEB_FILE"
-
     echo "Google Chrome installation complete!"
     echo
-
 fi
 echo
 
 mkdir -p /opt/darkfox
 DARKFOX_DIR="/opt/darkfox"
-cd  $DARKFOX_DIR || exit 1
-# Verify gowitness 3.0.5 is in /opt/darkfox
+cd "$DARKFOX_DIR" || exit 1
+
+# Verify gowitness
 GOWIT="/opt/darkfox/gowitness"
-if [ -f "$GOWIT" ]
-then
-    echo -e "\e[031mFound GoWitness 3.0.5\e[0m"
+if [ -f "$GOWIT" ]; then
+    print_found "GoWitness 3.0.5"
 else
     echo -e "\e[031mDownloading Missing GoWitness 3.0.5\e[0m"
-    wget --no-check-certificate -O gowitness 'https://drive.google.com/uc?export=download&id=1C-FpaGQA288dM5y40X1tpiNiN8EyNJKS' # gowitness 3.0.5
+    wget --no-check-certificate -O gowitness 'https://drive.google.com/uc?export=download&id=1C-FpaGQA288dM5y40X1tpiNiN8EyNJKS'
     chmod a+x gowitness
 fi
 echo
 
 # Onion Verifier
-# Verify gowitness 3.0.5 is in /opt/darkfox
 OV="/opt/darkfox/onion_verifier.py"
-if [ -f "$OV" ]
-then
-    echo -e "\e[031mFound Onion Verifier\e[0m"
+if [ -f "$OV" ]; then
+    print_found "Onion Verifier"
 else
     echo -e "\e[031mDownloading Onion Verifier\e[0m"
     wget --no-check-certificate -O onion_verifier.py 'https://github.com/aryanguenthner/darkfox/raw/refs/heads/main/onion_verifier.py'
@@ -231,75 +192,65 @@ else
 fi
 echo
 
-# Verify TorGhost is installed
+# Verify TorGhost
 TORNG="/usr/bin/torghostng"
-
 if [ -f "$TORNG" ]; then
-    echo -e "\e[031mFound TorghostNG\e[0m"
+    print_found "TorghostNG"
 else
     echo -e "\e[33mInstalling TorghostNG...\e[0m"
-    
-    # 1. Clean up previous failed installs to prevent "destination exists" git errors
     if [ -d "/opt/torghostng" ]; then
-        echo "Removing broken/old /opt/torghostng directory..."
-        sudo rm -rf /opt/torghostng
+        sudo rm -rf /opt/TorghostNG
     fi
-
-    # 2. Clone the repo
-    sudo git clone https://github.com/aryanguenthner/torghostng /opt/torghostng
-    cd /opt/torghostng || exit
-
-    # 3. Pre-install dependencies via APT to bypass PIP restrictions (PEP 668)
-    # This prevents install.py from crashing when it tries to use pip
-    echo "Installing Python dependencies via APT..."
+    sudo git clone https://github.com/aryanguenthner/TorghostNG /opt/TorghostNG
+    cd /opt/TorghostNG || exit
     sudo apt-get install -y python3-requests python3-stem python3-packaging
-
-    # 4. Ensure sysctl.conf exists
-    if [ ! -f /etc/sysctl.conf ]; then
-        sudo touch /etc/sysctl.conf
-    fi
-
-    # 5. Run the installer
+    [ ! -f /etc/sysctl.conf ] && sudo touch /etc/sysctl.conf
     sudo chmod +x install.py
     sudo python3 install.py
-
-    # 6. Fallback Verification: If the bin file wasn't created, force create the link
     if [ ! -f "/usr/bin/torghostng" ]; then
-        echo "Standard install failed, forcing manual symlink..."
-        sudo ln -sf /opt/torghostng/torghostng.py /usr/bin/torghostng
+        sudo ln -sf /opt/TorghostNG/torghostng.py /usr/bin/torghostng
         sudo chmod +x /usr/bin/torghostng
     fi
-
     echo "TorghostNG installation attempt complete."
 fi
 echo
 
 # Check/Install pyahmia
-PYAHMIA_BIN="/root/.local/bin/pyahmia"
-if [ -x "$PYAHMIA_BIN" ] && "$PYAHMIA_BIN" -v &> /dev/null; then
-    echo -e "\e[31mFound pyahmia\e[0m" # Green for success
+PYAHMIA_BIN=""
+for candidate in "$(command -v pyahmia 2>/dev/null)" "$(command -v ahmia 2>/dev/null)" \
+                 "/root/.local/bin/pyahmia" "/usr/local/bin/pyahmia" "/usr/bin/pyahmia"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        PYAHMIA_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -n "$PYAHMIA_BIN" ]; then
+    print_found "pyahmia: $PYAHMIA_BIN"
+    "$PYAHMIA_BIN" -v 2>/dev/null || true
 else
-    echo -e "\e[31mPyahmia not found. Installing via pipx...\e[0m"
-    pipx install pyahmia
-    
-    # Verify installation was successful
-    if [ -x "$PYAHMIA_BIN" ]; then
-        echo -e "\e[31mConfirmed pyahmia installed successfully\e[0m"
+    echo -e "\e[33m[INSTALL]\e[0m pyahmia not found. Installing..."
+    if command -v pipx >/dev/null 2>&1; then
+        pipx install pyahmia
     else
-        echo -e "\e[31mWarning: pyahmia installation may have failed\e[0m"
+        pip3 install --break-system-packages pyahmia 2>/dev/null || pip3 install pyahmia
+    fi
+    PYAHMIA_BIN="$(command -v pyahmia 2>/dev/null || command -v ahmia 2>/dev/null || true)"
+    if [ -z "$PYAHMIA_BIN" ]; then
+        for candidate in "/root/.local/bin/pyahmia" "/usr/local/bin/pyahmia"; do
+            [ -x "$candidate" ] && PYAHMIA_BIN="$candidate" && break
+        done
+    fi
+    if [ -n "$PYAHMIA_BIN" ] && [ -x "$PYAHMIA_BIN" ]; then
+        echo -e "\e[32m[OK]\e[0m pyahmia installed: $PYAHMIA_BIN"
+    else
+        echo -e "\e[31m[FAILED]\e[0m Could not install/find pyahmia. Ahmia search will fail."
         exit 1
     fi
-    echo
 fi
 
-
-# Editing Firefox about:config this allows DarkWeb .onion links to be opened with Firefox
-#echo 'user_pref("network.dns.blockDotOnion", false);' > user.js
-#sudo mv user.js /home/kali/.mozilla/firefox/*default-esr/
-# Create the files without having to run firefox for the first time.
-# Launch Firefox to auto-create the profile, then kill it
+# Firefox Configurations
 FIREFOX_DIR="/home/kali/.mozilla/firefox"
-
 if [ ! -d "$FIREFOX_DIR" ]; then
     echo "[+] Firefox profile not found. Initializing..."
     sudo -u kali firefox --headless >/dev/null 2>&1 &
@@ -320,18 +271,9 @@ else
     sudo mv user.js /home/kali/.mozilla/firefox/*default-esr/
 fi
 echo
-echo -ne '#######################\r'
-echo
 
-echo
-echo "Mozilla can actually go on the DarkWeb, Use Torbrowser first"
-# --- Configure Firefox to allow .onion sites ---
-echo "[+] Configuring Firefox to allow .onion sites..."
-# Create the policies directory if it doesn't exist
-# Note: Kali uses Firefox ESR by default. Adjust path if using standard Firefox.
 FIREFOX_POLICY_DIR="/etc/firefox-esr/policies"
 mkdir -p "$FIREFOX_POLICY_DIR"
-# Write the policies.json file
 cat <<EOF > "$FIREFOX_POLICY_DIR/policies.json"
 {
   "policies": {
@@ -347,23 +289,18 @@ EOF
 echo "[+] Firefox policy applied: network.dns.blockDotOnion = false"
 echo
 
-echo
-echo "Config Looks Good So Far"
-echo
-echo "Working directory: $(pwd)"
-echo -ne '\n'
-
 # User Input
 read -e -p "What are you researching: " SEARCH
 
-# Ahmia saves results to /root/pyahmia/{SEARCH}.csv
-AHMIA_CSV="/root/pyahmia/${SEARCH}.csv"
-RESULTS_FILE="/root/pyahmia/${SEARCH}.txt"
+SAFE_SEARCH=$(echo "$SEARCH" | tr -c 'A-Za-z0-9._-' '_' | sed 's/__*/_/g' | sed 's/^_\|_$//g')
+[ -z "$SAFE_SEARCH" ] && SAFE_SEARCH="search"
+
+AHMIA_DIR="${HOME}/pyahmia"
+mkdir -p "$AHMIA_DIR"
+AHMIA_CSV="${PWD}/${SAFE_SEARCH}.csv"
+RESULTS_FILE="${AHMIA_DIR}/${SAFE_SEARCH}.txt"
 
 echo -e "\nSearching for: $SEARCH"
-echo
-
-# Progress Bar
 echo "Searching for DarkWeb Onions..."
 echo -ne '#####                     (33%)\r'
 sleep 1
@@ -373,390 +310,190 @@ echo -ne '#######################   (100%)\r'
 echo -ne '\n'
 echo
 
-# Execution and Filtering
-echo "Querying Ahmia..."
-
-# Ensure the directory for pyahmia output exists
-mkdir -p "$(dirname "$AHMIA_CSV")"
-TMP_PYOUT="$(dirname "$AHMIA_CSV")/${SEARCH}.out"
-
-# Run pyahmia and capture stdout/stderr to a temporary file. Prefer the known binary path if executable.
-if [ -x "$PYAHMIA_BIN" ]; then
-    "$PYAHMIA_BIN" -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
-else
-    # Fallback to whatever 'pyahmia' is in PATH
-    pyahmia -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
+# Query Ahmia
+PYAHMIA_LOG="${AHMIA_DIR}/pyahmia_last.log"
+if ! "$PYAHMIA_BIN" "$SEARCH" --export > "$PYAHMIA_LOG" 2>&1; then
+    echo -e "\e[31m[WARN]\e[0m pyahmia exited with non-zero status. Log:"
+    tail -20 "$PYAHMIA_LOG" 2>/dev/null || true
 fi
 
-# If pyahmia created the CSV itself, parse it. Otherwise try to extract .onion domains from the captured output.
+if [ ! -f "$AHMIA_CSV" ]; then
+    CANDIDATE=$(find "$AHMIA_DIR" -maxdepth 1 -name "*.csv" -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+    if [ -n "$CANDIDATE" ] && [ -f "$CANDIDATE" ]; then
+        AHMIA_CSV="$CANDIDATE"
+    fi
+fi
+
 if [ -f "$AHMIA_CSV" ]; then
-    # Extract .onion URLs from the CSV (column 3 contains the URLs)
-    # Skip header (NR > 1) and extract only valid .onion domains
     awk -F',' 'NR > 1 {
-        # Extract .onion URL from the field
-        if ($3 ~ /\.onion/) {
-            # Remove quotes and extract just the onion domain
-            url = $3
+        for (i = 1; i <= NF; i++) {
+            url = $i
             gsub(/"/, "", url)
             gsub(/^[ \t]+|[ \t]+$/, "", url)
-            if (url ~ /\.onion$/) {
-                print url
-            } else {
-                # If the field contains a full URL, extract the domain
-                sub(/https?:\/\//, "", url)
-                split(url, a, "/")
-                print a[1]
+            if (url ~ /\.onion/) {
+                if (match(url, /[a-z2-7]{16,56}\.onion/)) {
+                    print substr(url, RSTART, RLENGTH)
+                } else {
+                    print url
+                }
             }
         }
     }' "$AHMIA_CSV" | sort -u > "$RESULTS_FILE"
 
-    # Additional filtering - remove banned patterns
-    sed -i '/invest/d; /222/d; /drug/d; /porn/d' "$RESULTS_FILE"
-
-    COUNT=$(wc -l < "$RESULTS_FILE")
-    echo -e "\e[31mOnions Found:\e[0m $COUNT"
+    sed -i '/invest/d; /222/d; /drug/d; /porn/d; /darknet/d' "$RESULTS_FILE" 2>/dev/null || true
+    COUNT=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
+    echo -e "\e[32mOnions Found:\e[0m $COUNT"
     echo "Results saved to: $RESULTS_FILE"
-    echo "CSV source: $AHMIA_CSV"
 else
-    # Try to extract onion domains from pyahmia stdout captured in TMP_PYOUT
-    # First extract full URLs then domains, then fallback to bare onion tokens
-    grep -ioE 'https?://[^/[:space:]]+\.onion' "$TMP_PYOUT" 2>/dev/null | sed -E 's#https?://##; s#/.*##' | sort -u > "$RESULTS_FILE"
-
-    if [ ! -s "$RESULTS_FILE" ]; then
-        grep -ioE '\b[a-z2-7]{16,56}\.onion\b' "$TMP_PYOUT" 2>/dev/null | sort -u > "$RESULTS_FILE"
-    fi
-
-    # Normalize and clean
-    sed -i 's/"//g; s/^[ \t]*//; s/[ \t]*$//' "$RESULTS_FILE"
-    sed -i '/^$/d; /invest/d; /222/d; /drug/d; /porn/d' "$RESULTS_FILE"
-
-    COUNT=$(wc -l < "$RESULTS_FILE" 2>/dev/null || echo 0)
-    if [ "$COUNT" -gt 0 ]; then
-        echo -e "\e[31mOnions Found:\e[0m $COUNT"
-        echo "Results saved to: $RESULTS_FILE"
-        echo "(Parsed from pyahmia output: $TMP_PYOUT)"
-    else
-        echo -e "\e[31mNo CSV file created. Ahmia may have failed or returned no results.\e[0m"
-        echo "Captured pyahmia output: $TMP_PYOUT"
-        COUNT=0
-    fi
+    echo -e "\e[31mNo CSV file created. Ahmia/pyahmia may have failed.\e[0m"
+    COUNT=0
 fi
 echo
 
-# CHECK IF RESULTS EXIST - CONDITIONAL TOR CONNECTION
 if [ "$COUNT" -eq 0 ]; then
-    echo -e "\e[31m======================================\e[0m"
-    echo -e "\e[31mNo onion links found for: $SEARCH\e[0m"
-    echo -e "\e[31m======================================\e[0m"
-    echo
-    read -p "Would you like to search for something else? (y/n): " SEARCH_AGAIN
-    echo
-    
-    if [[ "$SEARCH_AGAIN" == "y" || "$SEARCH_AGAIN" == "Y" ]]; then
-        # Restart the search process
-        read -p "What are you researching: " SEARCH
-        AHMIA_CSV="/root/pyahmia/${SEARCH}.csv"
-        RESULTS_FILE="/root/pyahmia/${SEARCH}.txt"
-        echo -e "\nSearching for: $SEARCH"
-        echo
-        echo "Searching for DarkWeb Onions..."
-        echo -ne '#####                     (33%)\r'
-        sleep 1
-        echo -ne '#############             (66%)\r'
-        sleep 1
-        echo -ne '#######################   (100%)\r'
-        echo -ne '\n'
-        echo
-        echo "Querying Ahmia..."
-
-        # Ensure directory exists and capture output
-        mkdir -p "$(dirname "$AHMIA_CSV")"
-        TMP_PYOUT="$(dirname "$AHMIA_CSV")/${SEARCH}.out"
-        if [ -x "$PYAHMIA_BIN" ]; then
-            "$PYAHMIA_BIN" -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
-        else
-            pyahmia -e "$SEARCH" > "$TMP_PYOUT" 2>&1 || true
-        fi
-
-        if [ -f "$AHMIA_CSV" ]; then
-            # Extract .onion URLs from CSV
-            awk -F',' 'NR > 1 {
-                if ($3 ~ /\.onion/) {
-                    url = $3
-                    gsub(/"/, "", url)
-                    gsub(/^[ \t]+|[ \t]+$/, "", url)
-                    if (url ~ /\.onion$/) {
-                        print url
-                    } else {
-                        sub(/https?:\/\//, "", url)
-                        split(url, a, "/")
-                        print a[1]
-                    }
-                }
-            }' "$AHMIA_CSV" | sort -u > "$RESULTS_FILE"
-            
-            sed -i '/invest/d; /222/d; /drug/d; /porn/d; /fresh/d; /darknet/d; /dna/d; /hack/d' "$RESULTS_FILE"
-            
-            COUNT=$(wc -l < "$RESULTS_FILE")
-            echo -e "\e[31mOnions Found:\e[0m $COUNT"
-            echo "Results saved to: $RESULTS_FILE"
-        else
-            # Fallback parse from pyahmia stdout
-            grep -ioE 'https?://[^/[:space:]]+\.onion' "$TMP_PYOUT" 2>/dev/null | sed -E 's#https?://##; s#/.*##' | sort -u > "$RESULTS_FILE"
-            if [ ! -s "$RESULTS_FILE" ]; then
-                grep -ioE '\b[a-z2-7]{16,56}\.onion\b' "$TMP_PYOUT" 2>/dev/null | sort -u > "$RESULTS_FILE"
-            fi
-            sed -i 's/"//g; s/^[ \t]*//; s/[ \t]*$//' "$RESULTS_FILE"
-            sed -i '/^$/d; /invest/d; /222/d; /drug/d; /porn/d; /fresh/d; /darknet/d; /dna/d; /hack/d' "$RESULTS_FILE"
-            COUNT=$(wc -l < "$RESULTS_FILE" 2>/dev/null || echo 0)
-            if [ "$COUNT" -gt 0 ]; then
-                echo -e "\e[31mOnions Found:\e[0m $COUNT"
-                echo "Results saved to: $RESULTS_FILE"
-            else
-                echo -e "\e[31mNo CSV file created.\e[0m"
-                COUNT=0
-            fi
-        fi
-        echo
-    else
-        echo -e "\e[31mExiting script. No results to process.\e[0m"
-        exit 0
-    fi
+    echo -e "\e[31mNo onion links found or candidate list empty. Exiting...\e[0m"
+    exit 0
 fi
 
-# Debugging - show preview
-if [ "$COUNT" -gt 0 ]; then
-    echo "Preview of found onions:"
-    head -3 "$RESULTS_FILE"
-    echo
-fi
+# Tor Connection
+echo -e "\e[32mFound $COUNT onion links candidate. Connecting to Tor...\e[0m"
+sudo systemctl start tor
+[ ! -f /etc/sysctl.conf ] && sudo touch /etc/sysctl.conf
+sudo python3 /opt/TorghostNG/torghostng.py -id nl
 echo
 
-# ONLY PROCEED TO TOR CONNECTION IF COUNT > 0
-if [ "$COUNT" -gt 0 ]; then
-    echo -e "\e[32m======================================\e[0m"
-    echo -e "\e[32mFound $COUNT onion links. Proceeding...\e[0m"
-    echo -e "\e[32m======================================\e[0m"
-    echo
-    
-    # Check for TOR Connection
-    echo "Starting Tor service"
-    sudo systemctl start tor
-    echo
-    
-    # Starting Tor in the Netherlands
-    # Example Country Codes: nl,cz,de,us,ca,mx,ru,br,bo,gb,fr,ir,by,cn
-    echo "Attempting to connect to the Dark Web..."
-
-    # --- FIX: Create sysctl.conf if missing to prevent TorGhost crash ---
-    if [ ! -f /etc/sysctl.conf ]; then
-        echo "[Fix] Creating missing /etc/sysctl.conf..."
-        sudo touch /etc/sysctl.conf
-    fi
-    # --------------------------------------------------------------------
-
-    sudo python3 /opt/TorghostNG/torghostng.py -id nl
-    echo
-    echo -e "\e[031mEstablishing a Connection to the Dark Web\e[0m"
-        
-    # Simulated Progress Bar
-    echo -ne '#####                     (33%)\r'
-    sleep 1
-    echo -ne '#############             (66%)\r'
-    sleep 1
-    echo -ne '#######################   (100%)\r'
-    sleep 1
-    echo -ne '\n'
-    echo
-    echo -e "\e[31mConnection Established. You can now access .onion sites.\e[0m"
-
-    # Get Dark Web IP
-    # Get location details using ipinfo.io
-    # Fetch Public IP using multiple sources (fallback if one fails)
-    # Check if connected to Tor & extract IP correctly
-    TOR_IP_JSON=$(curl --socks5-hostname 127.0.0.1:9050 -s --max-time 4 https://check.torproject.org/api/ip)
-    TOR_IP=$(echo "$TOR_IP_JSON" | jq -r '.IP // empty')
-    # Fetch Public IP and Location
-    if [[ -n "$TOR_IP" ]]; then
-        EXT="$TOR_IP"
-        LOCATION=$(curl --socks5-hostname 127.0.0.1:9050 -s "http://ip-api.com/json/$EXT")
-    else
-        EXT=$(curl -s https://api64.ipify.org || curl -s https://ifconfig.me || curl -s https://checkip.amazonaws.com)
-        LOCATION=$(curl -s "http://ip-api.com/json/$EXT")
-    fi
-    
-    # Extract Country, State, and City (Handle Errors)
-    COUNTRY=$(echo "$LOCATION" | jq -r '.country // "Unavailable"')
-    REGION=$(echo "$LOCATION" | jq -r '.regionName // "Unavailable"')
-    CITY=$(echo "$LOCATION" | jq -r '.city // "Unavailable"')
-    KALI=$(hostname -I | awk '{print $1}')
-
-    # Print in table format
-    echo "---------------------------------"
-    printf "| %-12s | %-20s |\n" "Label" "Value"
-    echo "---------------------------------"
-    printf "| %-12s | %-20s |\n" "Public IP" "$EXT"
-    printf "| %-12s | %-20s |\n" "Country" "$COUNTRY"
-    printf "| %-12s | %-20s |\n" "State" "$REGION"
-    printf "| %-12s | %-20s |\n" "City" "$CITY"
-    printf "| %-12s | %-20s |\n" "Kali IP" "$KALI"
-    echo "---------------------------------"
-    echo
-    chmod -R 777 "$PWD"
-    echo -e "\e[31mGetting More Info on $COUNT Onions\e[0m"
-    echo "---------------------------------"
-    echo
-    
+TOR_IP_JSON=$(curl --socks5-hostname 127.0.0.1:9050 -s --max-time 4 https://check.torproject.org/api/ip)
+TOR_IP=$(echo "$TOR_IP_JSON" | jq -r '.IP // empty')
+if [[ -n "$TOR_IP" ]]; then
+    EXT="$TOR_IP"
+    LOCATION=$(curl --socks5-hostname 127.0.0.1:9050 -s "http://ip-api.com/json/$EXT")
 else
-    echo -e "\e[31mNo onion links available. Cannot proceed.\e[0m"
-    exit 1
+    EXT=$(curl -s https://api64.ipify.org || curl -s https://ifconfig.me || curl -s https://checkip.amazonaws.com)
+    LOCATION=$(curl -s "http://ip-api.com/json/$EXT")
 fi
+
+COUNTRY=$(echo "$LOCATION" | jq -r '.country // "Unavailable"')
+REGION=$(echo "$LOCATION" | jq -r '.regionName // "Unavailable"')
+CITY=$(echo "$LOCATION" | jq -r '.city // "Unavailable"')
+KALI=$(hostname -I | awk '{print $1}')
+
+echo -e "\e[031mDarkweb Network Information\e[0m"
+echo "---------------------------------"
+printf "| %-12s | %-20s |\n" "Public IP" "$EXT"
+printf "| %-12s | %-20s |\n" "Country" "$COUNTRY"
+printf "| %-12s | %-20s |\n" "State" "$REGION"
+printf "| %-12s | %-20s |\n" "City" "$CITY"
+printf "| %-12s | %-20s |\n" "Kali IP" "$KALI"
+echo "---------------------------------"
 echo
 
-# After COUNT is determined and > 0, before running onion_verifier:
-
-# CRITICAL: Set up the file that onion_verifier.py expects
+# Prepare files for Onion Verifier
 cd "$DARKFOX_DIR" || exit 1
+CANDIDATES_FILE="$DARKFOX_DIR/candidates.onion.csv"
+cp "$RESULTS_FILE" "$CANDIDATES_FILE"
 
-# Copy results to the format/location onion_verifier.py expects
-cp "$RESULTS_FILE" "$DARKFOX_DIR/results.onion.csv"
-
-echo "Copied results to: $DARKFOX_DIR/results.onion.csv"
+echo -e "\e[31m[+] Verifying Onions live...\e[0m"
 echo
 
-# Verify the file exists and has content
-if [ ! -f "$DARKFOX_DIR/results.onion.csv" ]; then
-    echo -e "\e[31mERROR: Could not create results.onion.csv\e[0m"
-    exit 1
-fi
+# Run unbuffered (-u) so verifications stream to stdout immediately
+# We tee to a logfile to parse live status
+VERIFIER_LOG="$DARKFOX_DIR/onion_verifier.log"
+sudo python3 -u "$DARKFOX_DIR/onion_verifier.py" "$CANDIDATES_FILE" | tee "$VERIFIER_LOG"
 echo
 
-VERIFY_COUNT=$(wc -l < "$DARKFOX_DIR/results.onion.csv")
-echo "File contains $VERIFY_COUNT lines"
-echo
+# Filter reachable links into results.onion.csv
+ONIONS_CSV="$DARKFOX_DIR/onion_page_titles.csv"
+> "$DARKFOX_DIR/results.onion.csv"
 
-# Now run onion_verifier
-echo -e "\e[031m[+] Verifying Onions...\e[0m"
-echo
-cd "$DARKFOX_DIR" || exit 1
-sudo python3 "$DARKFOX_DIR/onion_verifier.py" "$DARKFOX_DIR/results.onion.csv" | tee "$DARKFOX_DIR/onion_verifier.log"
-echo
-
-# Open spreadsheet with all results
-echo -e "\e[031mOpening DarkFox results with LibreOffice\e[0m"
-ONIONS="$DARKFOX_DIR/onion_page_titles.csv"
-
-if [ -f "$ONIONS" ]; then
-    sudo libreoffice --calc "$ONIONS" --infilter="CSV:44,34,0,1,4/2/1" --norestore > /dev/null 2>&1 & disown
-    echo "The Onions have been saved to: $ONIONS"
-else
-    echo "Warning: $ONIONS not found yet. It may be created after gowitness finishes."
-fi
-echo
-
-# Open Firefox
-echo -e "\e[031mPro Tip: Use NoScript on the Dark Web! Block Javascript!\e[0m"
-echo
-
-HITS=()
-
-if [ -f "$ONIONS" ]; then
-    # File exists: Extract top 3 based on Title relevance
-    readarray -t HITS < <(awk -v search="$SEARCH" '
-        BEGIN { count = 0 }
-        NR > 1 && $1 ~ \/\.onion\/ {
-            url = $1;
-            sub(/\.onion.*/, ".onion", url);
-
-            title = tolower($2);
-            search_lower = tolower(search);
-
-            score = 0;
-            if (index(title, search_lower)) { score += 10 }
-            if (index(url, search_lower)) { score += 5 }
-
-            results[url] = score;
+if [ -f "$ONIONS_CSV" ] && [ -s "$ONIONS_CSV" ]; then
+    # Extract only lines that have an HTTP 200 or valid extracted title (reachable)
+    # Exclude failed rows containing "timed out", "down", "error", or "connection failed"
+    awk -F',' 'NR > 1 && $1 ~ /\.onion/ && $0 !~ /(?i)(down|timed out|error|failed|404|502|503)/ {
+        url = $1;
+        gsub(/"/, "", url);
+        gsub(/^[ \t]+|[ \t]+$/, "", url);
+        if (match(url, /[a-z2-7]{16,56}\.onion/)) {
+            print substr(url, RSTART, RLENGTH)
         }
-        END {
-            PROCINFO["sorted_in"] = "@val_num_desc"
-            for (url in results) {
-                print url
-                if (++n == 3) break
+    }' "$ONIONS_CSV" | sort -u > "$DARKFOX_DIR/results.onion.csv"
+fi
+
+# Fallback: Parse log if CSV filter produced no items
+if [ ! -s "$DARKFOX_DIR/results.onion.csv" ] && [ -f "$VERIFIER_LOG" ]; then
+    awk '/(?i)(alive|up|reachable|success|200)/ {
+        for (i = 1; i <= NF; i++) {
+            if (match($i, /[a-z2-7]{16,56}\.onion/)) {
+                print substr($i, RSTART, RLENGTH)
             }
         }
-    ' "$ONIONS")
-
-elif [ -f "$DARKFOX_DIR/results.onion.csv" ]; then
-    # File missing: Fallback to the raw list of URLs
-    echo -e "\e[33mWarning: Titles file not found. Falling back to raw URL list.\e[0m"
-    readarray -t HITS < <(head -n 3 "$DARKFOX_DIR/results.onion.csv")
-
-else
-    echo -e "\e[31mNo results files found to open.\e[0m"
+    }' "$VERIFIER_LOG" | sort -u > "$DARKFOX_DIR/results.onion.csv"
 fi
 
-# Assign extracted values (fallback to empty string if fewer than 3)
-HITS=("${HITS[@]:0:3}")  # Keep only the first 3 elements
-echo "Opening Dark Web Sites in Firefox"
+ALIVE_COUNT=$(wc -l < "$DARKFOX_DIR/results.onion.csv" | tr -d ' ')
+echo -e "\e[32m[+] Reachable Onions Stored in DarkFox:\e[0m $ALIVE_COUNT"
 echo
+
+if [ "$ALIVE_COUNT" -eq 0 ]; then
+    echo -e "\e[31mNo onion links were verified as reachable. Exiting early.\e[0m"
+    sudo python3 /opt/TorghostNG/torghostng.py -x --dns > /dev/null 2>&1
+    exit 0
+fi
+
+# Open reachable titles with LibreOffice
+if [ -f "$ONIONS_CSV" ]; then
+    echo -e "\e[031mOpening DarkFox results with LibreOffice\e[0m"
+    sudo libreoffice --calc "$ONIONS_CSV" --infilter="CSV:44,34,0,1,4/2/1" --norestore > /dev/null 2>&1 & disown
+fi
+
+# Open top 3 reachable sites in Firefox
+readarray -t HITS < <(head -n 3 "$DARKFOX_DIR/results.onion.csv")
+echo "Opening Reachable Dark Web Sites in Firefox..."
 for HIT in "${HITS[@]}"; do
-    [ -n "$HIT" ] && 
-    sudo -u kali firefox "$HIT" > /dev/null 2>&1 & disown
-    sleep 2
+    if [ -n "$HIT" ]; then
+        sudo -u kali firefox "http://$HIT" > /dev/null 2>&1 & disown
+        sleep 2
+    fi
 done
 
-# Run gowitness with optimized flags
-    echo -e "\e[31mGoWitness Getting Screenshots, Be patient and let it run.\e[0m"
-echo
+# Run gowitness only on the reachable results
+echo -e "\e[31mGoWitness Getting Screenshots for reachable onions...\e[0m"
 sudo ./gowitness scan file -f "$DARKFOX_DIR/results.onion.csv" \
-    --threads 10 \
+    --threads 8 \
     --write-db \
     --screenshot-fullpage \
     --chrome-proxy socks5://127.0.0.1:9050 \
     2>&1 | grep -Ev "ERROR|unknown IPAddressSpace value: Loopback"
 
-    
 echo
 echo -e "\e[31mScreenshot capture complete\e[0m"
 echo
 
-# Debugging (optional)
-printf "\n%s\n" "${HITS[@]}"
-echo
-
-# After results have been saved to db, Start Web Server
-echo "Starting GoWitness Server, Open http://127.0.0.1:7171/ when the screenshots are ready"
+# Start Web Server & Open Gallery
+echo "Starting GoWitness Server..."
 sudo qterminal -e ./gowitness report server > /dev/null 2>&1 & disown
-echo
-
-# After the web server has started, Open Firefox to see the results
-    echo -e "\e[031mOpening GoWitness Results in Firefox\e[0m"
-echo
-GOSERVER="http://127.0.0.1:7171/gallery"
-sudo -u kali firefox $GOSERVER > /dev/null 2>&1 & disown
-
-# Give Firefox a moment to load the Gowitness Server
 sleep 2
 
-# Refresh Firefox tab
-sudo xdotool search --onlyvisible --class firefox windowactivate --sync key Ctrl+r
+GOSERVER="http://127.0.0.1:7171/gallery"
+sudo -u kali firefox "$GOSERVER" > /dev/null 2>&1 & disown
+sleep 2
+sudo xdotool search --onlyvisible --class firefox windowactivate --sync key Ctrl+r 2>/dev/null || true
 
-
-# Ask the user if they want to disconnect from the dark web
-echo "Friendly reminder: to exit the Dark Web manually, type: torghostng -x"
+# Teardown / Disconnect Option
 echo
 read -p "Do you want to disconnect from the dark web? (y/n): " DISCONNECT
 echo
 
 if [[ "$DISCONNECT" == "y" || "$DISCONNECT" == "Y" ]]; then
-    echo
-    echo "Attempting to disconnect from the Dark Web..."
-    echo
-    echo "Exiting Dark Web"
-    echo -e "\e[31mBack to the real world\e[0m"
-    echo
+    echo "Exiting Dark Web..."
     sudo python3 /opt/TorghostNG/torghostng.py -x --dns
-fi
-echo
+    echo nameserver 1.1.1.1 | sudo tee /etc/resolv.conf > /dev/null
+    echo nameserver 8.8.8.8 | sudo tee -a /etc/resolv.conf > /dev/null
 
-# Pay Me later
+    if command -v systemd-resolve >/dev/null 2>&1; then
+        sudo systemd-resolve --flush-caches
+    elif command -v resolvectl >/dev/null 2>&1; then
+        sudo resolvectl flush-caches
+    fi
+
+    echo "=== Done! Welcome back to the real world. ==="
+fi
