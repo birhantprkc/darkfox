@@ -200,23 +200,25 @@ fi
 echo
 
 # Verify TorGhost
-TORNG="/usr/bin/torghostng"
-if [ -f "$TORNG" ]; then
+TORNG_BIN="/usr/bin/torghostng"
+TORNG_DIR="/opt/TorghostNG"
+
+if [ -f "$TORNG_BIN" ] && [ -d "$TORNG_DIR" ]; then
     print_found "TorghostNG"
 else
     echo -e "\e[33mInstalling TorghostNG...\e[0m"
-    if [ -d "/opt/torghostng" ]; then
-        sudo rm -rf /opt/TorghostNG
+    if [ -d "$TORNG_DIR" ]; then
+        sudo rm -rf "$TORNG_DIR"
     fi
-    sudo git clone https://github.com/aryanguenthner/TorghostNG /opt/TorghostNG
-    cd /opt/TorghostNG || exit
+    sudo git clone https://github.com/aryanguenthner/TorghostNG "$TORNG_DIR"
+    cd "$TORNG_DIR" || exit 1
     sudo apt-get install -y python3-requests python3-stem python3-packaging
     [ ! -f /etc/sysctl.conf ] && sudo touch /etc/sysctl.conf
     sudo chmod +x install.py
     sudo python3 install.py
-    if [ ! -f "/usr/bin/torghostng" ]; then
-        sudo ln -sf /opt/TorghostNG/torghostng.py /usr/bin/torghostng
-        sudo chmod +x /usr/bin/torghostng
+    if [ ! -f "$TORNG_BIN" ]; then
+        sudo ln -sf "$TORNG_DIR/torghostng.py" "$TORNG_BIN"
+        sudo chmod +x "$TORNG_BIN"
     fi
     echo "TorghostNG installation attempt complete."
 fi
